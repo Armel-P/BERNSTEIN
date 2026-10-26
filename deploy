@@ -1,0 +1,47 @@
+#!/bin/bash
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+set -a
+source .env
+set +a
+
+: "${REGISTRY:?set REGISTRY in .env}"
+: "${TAG:?set TAG in .env}"
+: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}"
+: "${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}"
+
+export TAG="${TAG:-$(git rev-parse --short HEAD)}"
+NS=poll
+
+echo "==> Build and push images (tag: $TAG)"
+az acr login --name "${REGISTRY%%.*}"
+docker compose build
+docker compose push
+
+echo "==> Namespace, secrets, config"
+kubectl apply -f k8s/namespace.yaml
+kubectl -n $NS create secret generic postgres \
+  --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n $NS create secret generic redis \
+  --from-literal=REDIS_PASSWORD="$REDIS_PASSWORD" --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n $NS create configmap postgres-init \
+  --from-file=schema.sql --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n $NS apply -f k8s/config.yaml
+
+echo "==> Backing services"
+kubectl -n $NS apply -f k8s/redis.yaml -f k8s/postgres.yaml
+kubectl -n $NS rollout status deployment/redis --timeout=180s
+kubectl -n $NS rollout status statefulset/postgres --timeout=300s
+
+echo "==> Applications"
+for f in poll worker result; do
+  envsubst '${REGISTRY} ${TAG}' < "k8s/$f.yaml" | kubectl -n $NS apply -f -
+done
+for d in poll worker result; do
+  kubectl -n $NS rollout status deployment/$d --timeout=300s
+done
+
+echo "==> External addresses (may take a minute to appear)"
+kubectl -n $NS get svc poll result

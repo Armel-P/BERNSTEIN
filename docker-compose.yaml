@@ -1,0 +1,10 @@
+services:
+  poll:
+    build: ./poll
+    image: ${REGISTRY}/poll:${TAG}
+  worker:
+    build: ./worker
+    image: ${REGISTRY}/worker:${TAG}
+  result:
+    build: ./result
+    image: ${REGISTRY}/result:${TAG}
