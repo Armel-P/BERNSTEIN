@@ -38,7 +38,14 @@ spec:
             periodSeconds: 10
           resources:
             requests: { cpu: 100m, memory: 128Mi }
-            limits:   { cpu: 500m, memory: 256Mi }
+            limits:   { cpu: 500m, memory: 256Mi }   
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: poll
+              topologyKey: kubernetes.io/hostname
 ---
 apiVersion: v1
 kind: Service
